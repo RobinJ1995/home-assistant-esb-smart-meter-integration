@@ -21,7 +21,7 @@ from .const import DOMAIN
 
 LOGGER = logging.getLogger(__name__)
 
-MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=5)
+MIN_TIME_BETWEEN_UPDATES = timedelta(hours=12)
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the ESB Smart Meter sensor."""
