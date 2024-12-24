@@ -1,17 +1,20 @@
+# ESB-smart-meter-integration
+
 # ESB Smart Meter integration for Home Assistant
 
-Heavily inspired by https://github.com/badger707/esb-smart-meter-reading-automation
+Inspired by [https://github.com/badger707/esb-smart-meter-reading-automation](https://github.com/RobinJ1995/home-assistant-esb-smart-meter-integration)
 
-## Requirements
+## Pre-Requirements
 
 - Account at https://myaccount.esbnetworks.ie/
 - Your meter's MPRN
 
-## Setup
+## Installation
 
-1. Install into your Home Assistant's `custom_components` folder
-2. Activate the integration
-3. In the popup, enter your ESB account's username, password, and MPRN
+1. Search for and install `esb-smart-meter-integration` follow the steps here [HACS](https://www.hacs.xyz/docs/faq/custom_repositories/). This will download to your Home Assistant's `custom_components` folder
+2. Restart Home Assistant
+3. Enable the integration
+4. In the popup, enter your ESB account's username, password, and MPRN
 
 If all went well, you should now have the following entities in Home Assistant:
 - `sensor.esb_electricity_usage_today`
