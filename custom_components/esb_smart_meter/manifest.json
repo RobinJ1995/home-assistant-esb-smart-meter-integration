@@ -4,6 +4,6 @@
     "version": "1.0",
     "requirements": ["requests", "beautifulsoup4"],
     "dependencies": [],
-    "codeowners": ["@robinj1995"],
+    "codeowners": ["@pravishj"],
     "config_flow": true
   }
