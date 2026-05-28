@@ -14,9 +14,7 @@ Heavily inspired by https://github.com/badger707/esb-smart-meter-reading-automat
 3. In the popup, enter your ESB account's username, password, and MPRN
 
 If all went well, you should now have the following entities in Home Assistant:
-- `sensor.esb_electricity_usage_today`
-- `sensor.esb_electricity_usage_last_24_hours`
-- `sensor.esb_electricity_usage_this_week`
-- `sensor.esb_electricity_usage_last_7_days`
-- `sensor.esb_electricity_usage_this_month`
-- `sensor.esb_electricity_usage_last_30_days`
+- `sensor.esb_smart_meter_<MPRN>_yesterday`
+- `sensor.esb_smart_meter_<MPRN>_this_month_so_far`
+- `sensor.esb_smart_meter_<MPRN>_this_year_so_far`
+- `sensor.esb_smart_meter_<MPRN>_latest_reading`
