@@ -357,8 +357,17 @@ class ESBDataApi:
                                  timeout=10)
         LOGGER.debug("Step 1/7: loaded portal page (status=%d, url=%s)",
                      login_page.status_code, login_page.url)
-        settings_var = re.findall(r"(?<=var SETTINGS = )\S*;", str(login_page.content))[0][:-1]
-        settings = json.loads(settings_var)
+        # Use .text, not str(.content): the latter is a bytes-repr with backslash
+        # escapes that breaks json.loads on any non-ASCII content.
+        settings_matches = re.findall(r"(?<=var SETTINGS = )\S*;", login_page.text)
+        if not settings_matches:
+            raise RuntimeError(
+                'ESB login page did not contain the expected SETTINGS variable '
+                '(status=%d, url=%s) — likely a captcha challenge or maintenance page; '
+                'body starts with: %r' %
+                (login_page.status_code, login_page.url, login_page.text[:200])
+            )
+        settings = json.loads(settings_matches[0][:-1])
         LOGGER.debug("Extracted SETTINGS (csrf=%s..., transId=%s...)",
                      settings['csrf'][:12], settings['transId'][:30])
 
