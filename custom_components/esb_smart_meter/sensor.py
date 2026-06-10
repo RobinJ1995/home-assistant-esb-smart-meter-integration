@@ -291,7 +291,8 @@ class ESBCachingApi:
                 return self._cached_data
 
             # If we recently failed, don't hammer the upstream — that's what
-            # triggers the multi-hour captcha lockout. Re-raise the cached error.
+            # triggers the multi-hour captcha lockout. Serve stale data if we have
+            # any; otherwise re-raise the cached error.
             if self._last_error_timestamp is not None and \
                 self._last_error_timestamp > now - MIN_TIME_BETWEEN_ERROR_RETRIES:
                 next_retry = self._last_error_timestamp + MIN_TIME_BETWEEN_ERROR_RETRIES
@@ -299,6 +300,8 @@ class ESBCachingApi:
                     "Suppressing fetch — in error cooldown until %s (last error: %s)",
                     next_retry, self._last_error,
                 )
+                if self._cached_data is not None:
+                    return self._cached_data
                 raise RuntimeError(
                     'ESB fetch is in cooldown after a recent failure (will retry after %s). '
                     'Last error: %s' % (next_retry, self._last_error)
@@ -317,11 +320,17 @@ class ESBCachingApi:
                 self._last_error_timestamp = None
             except Exception as err:
                 duration = (datetime.now() - fetch_start).total_seconds()
-                LOGGER.error("Fetch failed after %.1fs: %s", duration, err)
-                self._cached_data = None
-                self._cached_data_timestamp = None
                 self._last_error = err
                 self._last_error_timestamp = datetime.now()
+                # Keep any previously fetched data: stale readings beat no readings,
+                # and the upstream only changes once a day anyway.
+                if self._cached_data is not None:
+                    LOGGER.error(
+                        "Fetch failed after %.1fs: %s — serving stale data from %s",
+                        duration, err, self._cached_data_timestamp,
+                    )
+                    return self._cached_data
+                LOGGER.error("Fetch failed after %.1fs: %s", duration, err)
                 raise err
 
             if self._on_refresh is not None:
