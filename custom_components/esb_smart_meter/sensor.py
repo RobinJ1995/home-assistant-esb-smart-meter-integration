@@ -103,9 +103,13 @@ async def async_setup_entry(hass, entry, async_add_entities):
             sensor.async_schedule_update_ha_state(force_refresh=True)
         LOGGER.info("MPRN %s: initial fetch complete; entities updated", mprn)
 
-    hass.async_create_background_task(
+    task = hass.async_create_background_task(
         initial_fetch(), name=f"esb_smart_meter_{mprn}_initial_fetch"
     )
+    # Background tasks are only auto-cancelled on HA shutdown, not on entry
+    # unload; without this, removing/reloading the entry mid-fetch leaves the
+    # task running against torn-down entities.
+    entry.async_on_unload(task.cancel)
     LOGGER.info("MPRN %s: setup complete", mprn)
 
 
@@ -347,7 +351,15 @@ class ESBDataApi:
     def __login(self):
         LOGGER.debug("MPRN %s: starting ESB login flow", self._mprn)
         session = requests.Session()
+        try:
+            return self.__do_login(session)
+        except Exception:
+            # The session is only handed to the caller on success; close it here
+            # so a failed login doesn't leak its connection pool.
+            session.close()
+            raise
 
+    def __do_login(self, session):
         # Get CSRF token and stuff
         session.headers.update({
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:142.0) Gecko/20100101 Firefox/142.0'
@@ -498,7 +510,10 @@ class ESBDataApi:
 
     async def fetch(self):
         session = await self._hass.async_add_executor_job(self.__login)
-        csv_data = await self._hass.async_add_executor_job(self.__fetch_data, session)
+        try:
+            csv_data = await self._hass.async_add_executor_job(self.__fetch_data, session)
+        finally:
+            await self._hass.async_add_executor_job(session.close)
         data = await self._hass.async_add_executor_job(self.__csv_to_dict, csv_data)
 
         return ESBData(data=data)
