@@ -2,9 +2,11 @@
     "domain": "esb_smart_meter",
     "name": "ESB Smart Meter",
     "version": "2.0",
+    "documentation": "https://github.com/RobinJ1995/home-assistant-esb-smart-meter-integration",
+    "issue_tracker": "https://github.com/RobinJ1995/home-assistant-esb-smart-meter-integration/issues",
+    "iot_class": "cloud_polling",
     "requirements": ["requests", "beautifulsoup4"],
-    "dependencies": [],
-    "after_dependencies": ["recorder"],
+    "dependencies": ["recorder"],
     "codeowners": ["@robinj1995"],
     "config_flow": true
   }
