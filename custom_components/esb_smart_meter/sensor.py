@@ -103,13 +103,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
             sensor.async_schedule_update_ha_state(force_refresh=True)
         LOGGER.info("MPRN %s: initial fetch complete; entities updated", mprn)
 
-    task = hass.async_create_background_task(
-        initial_fetch(), name=f"esb_smart_meter_{mprn}_initial_fetch"
+    # Entry-scoped so it's cancelled on unload/reload, not just on HA shutdown.
+    entry.async_create_background_task(
+        hass, initial_fetch(), name=f"esb_smart_meter_{mprn}_initial_fetch"
     )
-    # Background tasks are only auto-cancelled on HA shutdown, not on entry
-    # unload; without this, removing/reloading the entry mid-fetch leaves the
-    # task running against torn-down entities.
-    entry.async_on_unload(task.cancel)
     LOGGER.info("MPRN %s: setup complete", mprn)
 
 
