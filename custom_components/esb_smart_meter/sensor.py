@@ -70,7 +70,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
     esb_api = ESBCachingApi(
         ESBDataApi(hass=hass, username=username, password=password, mprn=mprn),
         on_refresh=push_statistics,
+        on_auth_failed=lambda: entry.async_start_reauth(hass),
     )
+    # Data downloaded by the config flow while validating the credentials, if any.
+    prefetched = hass.data.get(DOMAIN, {}).pop(mprn, None)
 
     sensors = [
         ESBEnergySumSensor(esb_api=esb_api, mprn=mprn,
@@ -92,7 +95,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
         # a background task so setup itself doesn't block on the ~20s login delays.
         LOGGER.info("MPRN %s: triggering initial fetch; entities will populate when it completes", mprn)
         try:
-            await esb_api.fetch()
+            if prefetched is not None:
+                await esb_api.seed(prefetched)
+            else:
+                await esb_api.fetch()
         except Exception as err:
             LOGGER.warning(
                 "MPRN %s: initial fetch failed (%s) — entities will remain unknown "
@@ -265,7 +271,7 @@ class ESBData:
 class ESBCachingApi:
     """To not poll ESB constantly. The data only updates like once a day anyway."""
 
-    def __init__(self, esb_api, on_refresh=None) -> None:
+    def __init__(self, esb_api, on_refresh=None, on_auth_failed=None) -> None:
         self._esb_api = esb_api
         self._cached_data = None
         self._cached_data_timestamp = None
@@ -277,6 +283,31 @@ class ESBCachingApi:
         # Optional async callback invoked exactly once per successful upstream refresh
         # (not on cache hits). Used to push fresh data into HA's statistics store.
         self._on_refresh = on_refresh
+        # Optional callback invoked when ESB rejects the credentials.
+        self._on_auth_failed = on_auth_failed
+
+    async def seed(self, esb_data):
+        """Use data fetched elsewhere as a fresh refresh, without contacting ESB."""
+        async with self._lock:
+            self._cached_data = esb_data
+            self._cached_data_timestamp = datetime.now()
+            await self._run_on_refresh()
+
+    async def _fetch_upstream(self):
+        try:
+            return await self._esb_api.fetch()
+        except InvalidAuth:
+            if self._on_auth_failed is not None:
+                self._on_auth_failed()
+            raise
+
+    async def _run_on_refresh(self):
+        if self._on_refresh is not None:
+            # Side-effect on fresh data; don't fail the fetch if the hook errors.
+            try:
+                await self._on_refresh(self._cached_data)
+            except Exception as hook_err:
+                LOGGER.error('on_refresh hook failed: %s', hook_err)
 
     async def fetch(self):
         async with self._lock:
@@ -290,6 +321,11 @@ class ESBCachingApi:
                     (self._cached_data_timestamp + MIN_TIME_BETWEEN_UPDATES) - now,
                 )
                 return self._cached_data
+
+            # Don't retry credentials ESB has already rejected; the entry is reloaded
+            # with new ones when the reauth flow completes.
+            if isinstance(self._last_error, InvalidAuth):
+                raise InvalidAuth(str(self._last_error))
 
             # If we recently failed, don't hammer the upstream — that's what
             # triggers the multi-hour captcha lockout. Re-raise the cached error.
@@ -309,7 +345,7 @@ class ESBCachingApi:
                         self._cached_data_timestamp or "never")
             fetch_start = datetime.now()
             try:
-                self._cached_data = await self._esb_api.fetch()
+                self._cached_data = await self._fetch_upstream()
                 duration = (datetime.now() - fetch_start).total_seconds()
                 row_count = len(self._cached_data._data)
                 LOGGER.info("Fetched %d rows from ESB in %.1fs", row_count, duration)
@@ -325,15 +361,13 @@ class ESBCachingApi:
                 self._last_error_timestamp = datetime.now()
                 raise err
 
-            if self._on_refresh is not None:
-                # Side-effect on fresh data; don't fail the fetch if the hook errors.
-                try:
-                    await self._on_refresh(self._cached_data)
-                except Exception as hook_err:
-                    LOGGER.error('on_refresh hook failed: %s', hook_err)
-
+            await self._run_on_refresh()
             return self._cached_data
     
+
+class InvalidAuth(RuntimeError):
+    """ESB rejected the username or password."""
+
 
 class ESBDataApi:
     """Class for handling the data retrieval."""
@@ -406,6 +440,11 @@ class ESBDataApi:
             login_status = json.loads(login_response.text).get('status')
         except ValueError:
             login_status = None
+        if login_status == '400':
+            raise InvalidAuth(
+                'ESB SelfAsserted login rejected the credentials (body=%r)' %
+                (login_response.text[:200],)
+            )
         if login_status != '200':
             raise RuntimeError(
                 'ESB SelfAsserted login did not succeed (status=%r, body=%r)' %

@@ -1,0 +1,29 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ESB Smart Meter",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "mprn": "MPRN"
+        }
+      },
+      "reauth_confirm": {
+        "title": "ESB Smart Meter",
+        "description": "ESB rejected the password for {username} (MPRN {mprn}). Enter the current password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "ESB rejected the username or password.",
+      "cannot_connect": "Could not log in to ESB or download the data; see the logs for details."
+    },
+    "abort": {
+      "already_configured": "This MPRN is already configured.",
+      "reauth_successful": "The password has been updated."
+    }
+  }
+}
