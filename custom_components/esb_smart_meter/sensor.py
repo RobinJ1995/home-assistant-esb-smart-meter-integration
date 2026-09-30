@@ -500,10 +500,27 @@ class ESBDataApi:
         soup = BeautifulSoup(confirm_login_response.content, 'html.parser')
         form = soup.find('form', {'id': 'auto'})
         if form is None:
+            # The page B2C rendered instead (login re-render, captcha challenge, error
+            # page, ...) identifies itself in its own SETTINGS.
+            page_settings = {}
+            page_settings_matches = re.findall(r"(?<=var SETTINGS = )\S*;", confirm_login_response.text)
+            if page_settings_matches:
+                try:
+                    page_settings = json.loads(page_settings_matches[0][:-1])
+                except ValueError:
+                    pass
+            remote_resource = page_settings.get('remoteResource') or ''
+            LOGGER.debug("confirmed-login full response body: %s", confirm_login_response.text)
+            if 'captcha' in remote_resource.lower():
+                raise RuntimeError(
+                    'ESB login blocked by a B2C captcha challenge (%s)' % remote_resource
+                )
             raise RuntimeError(
                 'ESB confirmed-login response did not contain the expected auth form '
-                '(url=%s, body starts with: %r)' %
-                (confirm_login_response.url, confirm_login_response.text[:200])
+                '(url=%s, page api=%r, pageMode=%r, remoteResource=%r, body starts with: %r)' %
+                (confirm_login_response.url, page_settings.get('api'),
+                 page_settings.get('pageMode'), remote_resource,
+                 confirm_login_response.text[:200])
             )
         state = form.find('input', {'name': 'state'})['value']
         client_info = form.find('input', {'name': 'client_info'})['value']
