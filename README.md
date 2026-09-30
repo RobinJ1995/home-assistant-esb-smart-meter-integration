@@ -18,3 +18,6 @@ If all went well, you should now have the following entities in Home Assistant:
 - `sensor.esb_smart_meter_<MPRN>_this_month_so_far`
 - `sensor.esb_smart_meter_<MPRN>_this_year_so_far`
 - `sensor.esb_smart_meter_<MPRN>_latest_reading`
+
+And the following statistic, which can be added to the Energy dashboard as grid consumption:
+- `esb_smart_meter:consumption_<MPRN>`
