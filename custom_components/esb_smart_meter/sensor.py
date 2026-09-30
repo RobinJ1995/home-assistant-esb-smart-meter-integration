@@ -14,8 +14,10 @@ from io import StringIO
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.const import UnitOfEnergy
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
+    get_last_statistics,
     StatisticData,
     StatisticMetaData,
 )
@@ -45,6 +47,10 @@ MIN_TIME_BETWEEN_UPDATES = timedelta(hours=12)
 # only makes the problem worse.
 MIN_TIME_BETWEEN_ERROR_RETRIES = timedelta(hours=1)
 
+# On each refresh, hourly statistics newer than (latest stored hour - this window) are
+# recomputed from the CSV and re-pushed; older stored statistics are left untouched.
+STATISTICS_REPUSH_WINDOW = timedelta(days=7)
+
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the ESB Smart Meter sensor based on a config entry."""
     username = entry.data["username"]
@@ -55,8 +61,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     async def push_statistics(esb_data):
         start = datetime.now()
+        anchor_start, anchor_sum = await _get_statistics_anchor(hass, mprn)
         metadata, stats = await hass.async_add_executor_job(
-            esb_data.build_hourly_statistics, mprn
+            esb_data.build_hourly_statistics, mprn, anchor_start, anchor_sum
         )
         if stats:
             async_add_external_statistics(hass, metadata, stats)
@@ -114,6 +121,30 @@ async def async_setup_entry(hass, entry, async_add_entities):
         hass, initial_fetch(), name=f"esb_smart_meter_{mprn}_initial_fetch"
     )
     LOGGER.info("MPRN %s: setup complete", mprn)
+
+
+def _statistic_id(mprn):
+    return f"{DOMAIN}:consumption_{mprn}"
+
+
+async def _get_statistics_anchor(hass, mprn):
+    """Return (start_utc, sum) of the newest stored statistic that is at least
+    STATISTICS_REPUSH_WINDOW older than the newest one, or (None, 0.0) if none is.
+    """
+    statistic_id = _statistic_id(mprn)
+    # At most one row per hour, so this many rows always reaches past the window.
+    max_rows = int(STATISTICS_REPUSH_WINDOW / timedelta(hours=1)) + 1
+    last = await get_instance(hass).async_add_executor_job(
+        get_last_statistics, hass, max_rows, statistic_id, False, {"sum"}
+    )
+    rows = last.get(statistic_id, [])
+    if not rows:
+        return None, 0.0
+    cutoff = rows[0]["start"] - STATISTICS_REPUSH_WINDOW.total_seconds()
+    for row in rows:
+        if row["start"] <= cutoff:
+            return datetime.fromtimestamp(row["start"], tz=timezone.utc), row["sum"] or 0.0
+    return None, 0.0
 
 
 def _device_info(mprn):
@@ -233,11 +264,13 @@ class ESBData:
             return None
         return latest_naive_end.replace(tzinfo=IRELAND_TZ).astimezone(timezone.utc)
 
-    def build_hourly_statistics(self, mprn):
+    def build_hourly_statistics(self, mprn, anchor_start=None, anchor_sum=0.0):
         """Bucket the 30-min readings into hourly stats for HA's long-term-statistics store.
 
         Returns (metadata, stats_list). Each StatisticData has UTC `start` and a
-        cumulative `sum` from the earliest available reading.
+        cumulative `sum`. With `anchor_start`, only hours after it are emitted and the
+        sum continues from `anchor_sum`; without it, the sum starts at zero from the
+        earliest available reading.
         """
         # Bucket by UTC hour. We can't bucket by local-naive hour because on the
         # DST spring-forward day two distinct local hours map to the same UTC hour,
@@ -250,8 +283,10 @@ class ESBData:
             hourly[hour_utc] = hourly.get(hour_utc, 0.0) + value
 
         stats = []
-        cumulative = 0.0
+        cumulative = anchor_sum
         for hour_utc in sorted(hourly):
+            if anchor_start is not None and hour_utc <= anchor_start:
+                continue
             cumulative += hourly[hour_utc]
             stats.append(StatisticData(start=hour_utc, sum=cumulative))
 
@@ -260,7 +295,7 @@ class ESBData:
             has_sum=True,
             name=f"ESB Smart Meter {mprn} Consumption",
             source=DOMAIN,
-            statistic_id=f"{DOMAIN}:consumption_{mprn}",
+            statistic_id=_statistic_id(mprn),
             unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         )
         if _STATISTIC_MEAN_TYPE_NONE is not None:
