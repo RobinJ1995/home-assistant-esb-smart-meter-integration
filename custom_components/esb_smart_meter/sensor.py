@@ -446,6 +446,8 @@ class ESBDataApi:
                 (login_page.status_code, login_page.url, login_page.text[:200])
             )
         settings = json.loads(settings_matches[0][:-1])
+        # The B2C authorize page; sent as the Referer on the login and confirmed requests.
+        authorize_url = login_page.url
         LOGGER.debug("Extracted SETTINGS (csrf=%s..., transId=%s...)",
                      settings['csrf'][:12], settings['transId'][:30])
 
@@ -467,6 +469,12 @@ class ESBDataApi:
                 'signInName': self._username,
                 'password': self._password,
                 'request_type': 'RESPONSE'
+            },
+            headers={
+                'X-Requested-With': 'XMLHttpRequest',
+                'Origin': 'https://login.esbnetworks.ie',
+                'Referer': authorize_url,
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
             },
             timeout=10)
         login_response.raise_for_status()
@@ -490,11 +498,18 @@ class ESBDataApi:
         LOGGER.debug("Step 3/7: GET CombinedSigninAndSignup/confirmed (fetch auth redirect form)")
         confirm_login_response = session.get('https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed',
                                              params={
-                                                'rememberMe': False,
+                                                # requests would send Python False as 'False'.
+                                                'rememberMe': 'false',
                                                 'csrf_token': settings['csrf'],
                                                 'tx': settings['transId'],
-                                                'p': 'B2C_1A_signup_signin'
+                                                'p': 'B2C_1A_signup_signin',
+                                                'diags': json.dumps({
+                                                    'pageViewId': settings.get('pageViewId', ''),
+                                                    'pageId': 'CombinedSigninAndSignup',
+                                                    'trace': [],
+                                                }, separators=(',', ':')),
                                              },
+                                             headers={'Referer': authorize_url},
                                              timeout=10)
         confirm_login_response.raise_for_status()
         soup = BeautifulSoup(confirm_login_response.content, 'html.parser')
