@@ -605,6 +605,18 @@ class ESBDataApi:
 
         return csv_data
 
+    def __logout(self, requests_session):
+        """Best-effort sign-out of the portal and B2C sessions; never raises."""
+        try:
+            logout_response = requests_session.get(
+                'https://myaccount.esbnetworks.ie/MicrosoftIdentity/Account/SignOut',
+                allow_redirects=True,
+                timeout=10)
+            LOGGER.debug("Signed out (status=%d, final url=%s)",
+                         logout_response.status_code, logout_response.url)
+        except Exception as err:
+            LOGGER.debug("Sign-out failed (ignored): %s", err)
+
     def __csv_to_dict(self, csv_data):
         reader = csv.DictReader(StringIO(csv_data))
         rows = [r for r in reader]
@@ -616,6 +628,7 @@ class ESBDataApi:
         try:
             csv_data = await self._hass.async_add_executor_job(self.__fetch_data, session)
         finally:
+            await self._hass.async_add_executor_job(self.__logout, session)
             await self._hass.async_add_executor_job(session.close)
         data = await self._hass.async_add_executor_job(self.__csv_to_dict, csv_data)
 
